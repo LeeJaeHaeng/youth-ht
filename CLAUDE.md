@@ -35,6 +35,21 @@ youth-ht/
 
 ## 진행 로그
 
+### 2026-05-08 (3차) — GitHub 초기 푸시 + Supabase llm_cache 연동
+
+#### GitHub 초기 커밋·푸시 ✅
+- `mobile/.git` (중첩 저장소) 제거 → 일반 파일로 스테이징
+- `dist-preview/`, `dist-preview2/` `.gitignore` 추가
+- 86개 파일 초기 커밋 → `https://github.com/LeeJaeHaeng/youth-ht.git` master 브랜치 push ✅
+
+#### Supabase llm_cache 연동 ✅
+- `.env`에 `SUPABASE_URL`, `SUPABASE_KEY`, `DATABASE_URL` 추가
+- `migrations/0002` (add_llm_cache_token_columns): `prompt_tokens/completion_tokens` 컬럼 추가, `response` JSONB→TEXT 변경
+- `llm.py` 수정: Supabase 우선 캐시, 연결 실패 시 SQLite fallback
+- Supabase read/write 테스트 ✅, E2E 재검증 ✅
+
+---
+
 ### 2026-05-08 (2차) — 카카오맵 지도 화면 + GRU 학습 진행중
 
 #### 카카오맵 지도 화면 추가 ✅

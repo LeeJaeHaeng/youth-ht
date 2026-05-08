@@ -1,7 +1,7 @@
 import type { RecommendItem, RecommendRequest, RecommendResponse } from '../types';
 
-// 로컬 개발: http://localhost:8000, 배포: 실제 URL 변경
-const BASE_URL = 'http://localhost:8000/api/v1';
+// 배포 시 EC2 퍼블릭 IP로 변경: http://<EC2_IP>:8000/api/v1
+const BASE_URL = process.env.EXPO_PUBLIC_API_URL ?? 'http://localhost:8000/api/v1';
 
 async function apiFetch<T>(path: string, body?: object): Promise<T> {
   const res = await fetch(`${BASE_URL}${path}`, {
