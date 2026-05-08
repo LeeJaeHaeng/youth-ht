@@ -1,0 +1,41 @@
+# 환경
+.env
+.venv/
+venv/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.python-version
+
+# 원시·처리 데이터
+data/raw/
+data/processed/
+data/verify/
+*.parquet
+*.csv
+*.xlsx
+
+# IDE
+.vscode/
+.idea/
+*.swp
+.DS_Store
+
+# 모델·로그
+models/
+logs/
+*.pkl
+*.pt
+*.h5
+
+# Node
+node_modules/
+.expo/
+dist/
+dist-preview/
+dist-preview2/
+web-build/
+
+# OS
+Thumbs.db
