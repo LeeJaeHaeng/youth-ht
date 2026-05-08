@@ -1,10 +1,10 @@
-"""LLM 서비스 — Gemini 2.5 Flash + 로컬 디스크 캐시.
+"""LLM 서비스 — Gemini 2.5 Flash + Supabase llm_cache (SQLite fallback).
 
 설계서 v2.2 §5 자연어 리포트 모듈 — 사용자 결정으로 DeepSeek-V3 → Gemini 전환.
 
 - 모델: gemini-2.5-flash (thinking_budget=0 — 짧은 한국어 리포트에 사고 토큰 불필요)
 - 비용: input $0.075/1M, output $0.30/1M (DeepSeek 대비 절반 + 한국어 품질 우수)
-- 캐시: 동일 prompt → 동일 응답. 시연·디버깅 비용 0.
+- 캐시: Supabase llm_cache 테이블 우선, 미연결 시 로컬 SQLite fallback
 """
 from __future__ import annotations
 
@@ -48,6 +48,7 @@ class LLMResponse:
 
 
 _client: genai.Client | None = None
+_supa_client = None  # supabase.Client
 
 
 def _get_client() -> genai.Client:
@@ -60,6 +61,24 @@ def _get_client() -> genai.Client:
     return _client
 
 
+def _get_supa():
+    """Supabase 클라이언트 반환. SUPABASE_URL/KEY 미설정 시 None."""
+    global _supa_client
+    if _supa_client is not None:
+        return _supa_client
+    url = os.getenv("SUPABASE_URL")
+    key = os.getenv("SUPABASE_KEY")
+    if not (url and key):
+        return None
+    try:
+        from supabase import create_client
+        _supa_client = create_client(url, key)
+        return _supa_client
+    except Exception as e:
+        logger.warning("Supabase 클라이언트 초기화 실패: %s → SQLite fallback", e)
+        return None
+
+
 def _cache_key(model: str, system: str, user: str, temperature: float) -> str:
     h = hashlib.sha256()
     for part in (model, system, user, f"{temperature:.2f}"):
@@ -68,7 +87,67 @@ def _cache_key(model: str, system: str, user: str, temperature: float) -> str:
     return h.hexdigest()
 
 
-def _ensure_cache() -> sqlite3.Connection:
+# ── Supabase 캐시 ────────────────────────────────────────────
+
+
+def _supa_read(key: str) -> LLMResponse | None:
+    supa = _get_supa()
+    if supa is None:
+        return None
+    try:
+        now_iso = datetime.now(timezone.utc).isoformat()
+        res = (
+            supa.table("llm_cache")
+            .select("response,prompt_tokens,completion_tokens,expires_at")
+            .eq("cache_key", key)
+            .execute()
+        )
+        rows = res.data
+        if not rows:
+            return None
+        row = rows[0]
+        expires_at = row.get("expires_at")
+        if expires_at:
+            try:
+                if datetime.fromisoformat(expires_at) < datetime.now(timezone.utc):
+                    return None
+            except ValueError:
+                pass
+        return LLMResponse(
+            text=row["response"],
+            prompt_tokens=row.get("prompt_tokens") or 0,
+            completion_tokens=row.get("completion_tokens") or 0,
+            cached=True,
+        )
+    except Exception as e:
+        logger.warning("Supabase 캐시 read 실패: %s", e)
+        return None
+
+
+def _supa_write(key: str, resp: LLMResponse, ttl_days: int = 30) -> bool:
+    supa = _get_supa()
+    if supa is None:
+        return False
+    try:
+        expires_at = (datetime.now(timezone.utc) + timedelta(days=ttl_days)).isoformat()
+        supa.table("llm_cache").upsert({
+            "cache_key": key,
+            "response": resp.text,
+            "prompt_tokens": resp.prompt_tokens,
+            "completion_tokens": resp.completion_tokens,
+            "created_at": datetime.now(timezone.utc).isoformat(),
+            "expires_at": expires_at,
+        }).execute()
+        return True
+    except Exception as e:
+        logger.warning("Supabase 캐시 write 실패: %s", e)
+        return False
+
+
+# ── SQLite fallback 캐시 ─────────────────────────────────────
+
+
+def _ensure_sqlite() -> sqlite3.Connection:
     CACHE_DB.parent.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(CACHE_DB)
     conn.execute(
@@ -88,7 +167,10 @@ def _ensure_cache() -> sqlite3.Connection:
 
 
 def _read_cache(key: str) -> LLMResponse | None:
-    with _ensure_cache() as conn:
+    cached = _supa_read(key)
+    if cached:
+        return cached
+    with _ensure_sqlite() as conn:
         row = conn.execute(
             "SELECT response, prompt_tokens, completion_tokens, expires_at FROM llm_cache WHERE cache_key=?",
             (key,),
@@ -106,8 +188,10 @@ def _read_cache(key: str) -> LLMResponse | None:
 
 
 def _write_cache(key: str, resp: LLMResponse, ttl_days: int = 30) -> None:
+    if _supa_write(key, resp, ttl_days):
+        return
     expires_at = (datetime.now(timezone.utc) + timedelta(days=ttl_days)).isoformat()
-    with _ensure_cache() as conn:
+    with _ensure_sqlite() as conn:
         conn.execute(
             "INSERT OR REPLACE INTO llm_cache(cache_key, response, prompt_tokens, completion_tokens, created_at, expires_at) VALUES (?, ?, ?, ?, ?, ?)",
             (
