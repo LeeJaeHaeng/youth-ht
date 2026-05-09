@@ -35,6 +35,54 @@ youth-ht/
 
 ## 진행 로그
 
+### 2026-05-09~10 — GRU 재학습 완료 + creative-heartbeat-ui 웹 UI 전환 + E2E 검증 ✅
+
+#### 행안부 인구 API 연동 완료 ✅
+
+- `scripts/collect/08_collect_population.py` 완전 재작성
+- 엔드포인트: `https://apis.data.go.kr/1741000/RegistrationPopulationByRegion/getRegistrationPopulationByRegion`
+- 응답 구조: `{RegistrationPopulationByRegion: [{head:...}, {row:[...]}]}` (비표준 — 직접 파싱)
+- 17 시도 × 2019~2024 = 87행, YoY `pop_change_rate` 산출
+- 출력: `data/processed/pop_change_by_sido.parquet`
+
+#### GRU Kaggle 재학습 완료 ✅
+
+- 3개 피처 전부 실데이터로 교체 후 재학습 (pop_change_rate, unsold_units_norm, youth_wage_norm)
+- `scripts/kaggle/train_gru.py` 수정: `load_population()` 추가, `build_features()`에 pop dict 주입
+- Kaggle kernel push: `scripts/kaggle/kernel_push/kernel-metadata.json` 신규 생성
+- 결과: best_val_huber=0.0625, **666 predictions** (111 시군구 × 6 horizon), CPU 122초
+- `gru_predictions.parquet` + `gru_rent_model.pt` 다운로드 → `data/processed/` 배치
+
+#### creative-heartbeat-ui 웹 UI 전환 및 FastAPI 백엔드 완전 연동 ✅
+
+기존 React Native 모바일 앱과 별도로, `https://github.com/LeeJaeHaeng/creative-heartbeat-ui` (TanStack Start 기반 웹 앱)을 신규 웹 프론트엔드로 채택.
+
+| 파일 | 변경 | 내용 |
+| --- | --- | --- |
+| `src/lib/api.ts` | 신규 | fetchRecommend, fetchReport, OFFICE_PRESETS 10개, resultCache |
+| `src/lib/mock-data.ts` | 수정 | toArea() 변환 함수 추가, _raw/_req 필드 추가 |
+| `src/routes/recommend.tsx` | 재작성 | 실 API 기반 AI 추천 받기 버튼, 가중치 preset, mock 폴백 |
+| `src/routes/area.$id.tsx` | 재작성 | resultCache 상세 로드, Gemini AI 리포트 비동기, GRU 차트 |
+| `.env.local` | 신규 | `VITE_API_URL=http://localhost:8000` |
+
+#### E2E 전체 플로우 검증 결과 ✅ (2026-05-10)
+
+- **추천 페이지** (여의도 기준, balance): 10개 결과 — #1 인천 동구 23만/33분, #2 서울 동작구 50만/11분 등
+- **상세 페이지** (동작구 `/area/11590`): GRU 차트(과거5개월+현재+예측6개월) 정상 렌더링
+- **Gemini AI 리포트**: "27세 직장인 고객님께 서울특별시 동작구는 여의도 직장과의 짧은 통근 시간과 저렴한 월세로 매우 매력적인 선택지입니다..." 완전 로드
+- **핵심 지표**: 월 소득 대비 부담 19.1%, 6개월 후 부담 예측 23.0%, HUG 보증사고율 0.60%
+
+#### 현재 상태 (2026-05-10 기준)
+
+| 항목 | 상태 |
+| --- | --- |
+| FastAPI 백엔드 | localhost:8000 실행 중 |
+| creative-heartbeat-ui | localhost:3001 실행 중 (git push 미완) |
+| youth-ht 백엔드 | git push 미완 |
+| EC2 배포 | SSH 연결 타임아웃 — 미완 |
+
+---
+
 ### 2026-05-09 — 행안부·KOSIS·R-ONE 실데이터 GRU 피처 연동 완료
 
 #### 데이터 융합 가점(5점) 대응 — 3개 피처 실데이터 교체 ✅
