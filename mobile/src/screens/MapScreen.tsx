@@ -1,15 +1,20 @@
-import React, { useRef, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   Animated,
+  Platform,
   StyleSheet,
   Text,
   TouchableOpacity,
   View,
 } from 'react-native';
-import WebView from 'react-native-webview';
 import { Tag } from '../components';
 import { colors, font, radius, shadow, spacing } from '../theme';
 import type { RecommendItem, RecommendRequest } from '../types';
+
+// react-native-webview는 native(iOS/Android)에서만 사용
+const WebView = Platform.OS !== 'web'
+  ? require('react-native-webview').default
+  : null;
 
 interface Props {
   items: RecommendItem[];
@@ -53,19 +58,20 @@ function buildMapHtml(
   src="//dapi.kakao.com/v2/maps/sdk.js?appkey=${jsKey}&autoload=false">
 </script>
 <script>
+function postMsg(data) {
+  if (window.ReactNativeWebView) {
+    window.ReactNativeWebView.postMessage(data);
+  } else {
+    window.parent.postMessage(data, '*');
+  }
+}
 kakao.maps.load(function() {
   var map = new kakao.maps.Map(document.getElementById('map'), {
     center: new kakao.maps.LatLng(${workLat}, ${workLng}),
     level: 8
   });
 
-  // 직장 마커 (별 모양 오렌지)
-  var workMarker = new kakao.maps.Marker({
-    map: map,
-    position: new kakao.maps.LatLng(${workLat}, ${workLng}),
-    title: '직장'
-  });
-  var workOverlay = new kakao.maps.CustomOverlay({
+  new kakao.maps.CustomOverlay({
     map: map,
     position: new kakao.maps.LatLng(${workLat}, ${workLng}),
     content: '<div style="background:#DA7756;color:#fff;padding:4px 8px;border-radius:12px;font-size:11px;font-weight:700;white-space:nowrap;margin-bottom:6px;">★ 직장</div>',
@@ -76,7 +82,7 @@ kakao.maps.load(function() {
   markers.forEach(function(m) {
     var pos = new kakao.maps.LatLng(m.lat, m.lng);
     var content = [
-      '<div onclick="window.ReactNativeWebView && window.ReactNativeWebView.postMessage(JSON.stringify({rank:' + m.rank + '}))" ',
+      '<div onclick="postMsg(JSON.stringify({rank:' + m.rank + '}))" ',
       'style="cursor:pointer;text-align:center;">',
       '<div style="background:' + m.color + ';color:#fff;width:32px;height:32px;border-radius:50%;',
       'display:flex;align-items:center;justify-content:center;font-size:14px;font-weight:800;',
@@ -115,30 +121,50 @@ export default function MapScreen({ items, request, onCardPress }: Props) {
     });
   }
 
-  function handleMessage(event: { nativeEvent: { data: string } }) {
+  // native: WebView onMessage 핸들러
+  function handleNativeMessage(event: { nativeEvent: { data: string } }) {
     try {
       const { rank } = JSON.parse(event.nativeEvent.data);
       const item = items.find(it => it.rank === rank);
       if (item) showCard(item);
-    } catch {
-      // ignore
-    }
+    } catch { /* ignore */ }
   }
+
+  // web: iframe postMessage 리스너
+  useEffect(() => {
+    if (Platform.OS !== 'web') return;
+    function onWebMessage(e: MessageEvent) {
+      try {
+        const { rank } = JSON.parse(e.data);
+        const item = items.find(it => it.rank === rank);
+        if (item) showCard(item);
+      } catch { /* ignore */ }
+    }
+    window.addEventListener('message', onWebMessage);
+    return () => window.removeEventListener('message', onWebMessage);
+  }, [items]);
 
   const html = buildMapHtml(items, request.work_lat, request.work_lng, KAKAO_JS_KEY);
 
+  const mapView = Platform.OS === 'web'
+    ? React.createElement('iframe', {
+        srcDoc: html,
+        style: { flex: 1, border: 'none', width: '100%', height: '100%' } as React.CSSProperties,
+        sandbox: 'allow-scripts allow-same-origin',
+      })
+    : React.createElement(WebView, {
+        source: { html, baseUrl: 'https://youth-ht.app' },
+        style: s.map,
+        onMessage: handleNativeMessage,
+        javaScriptEnabled: true,
+        domStorageEnabled: true,
+        originWhitelist: ['*'],
+      });
+
   return (
     <View style={s.container}>
-      <WebView
-        source={{ html, baseUrl: 'https://youth-ht.app' }}
-        style={s.map}
-        onMessage={handleMessage}
-        javaScriptEnabled
-        domStorageEnabled
-        originWhitelist={['*']}
-      />
+      {mapView}
 
-      {/* 하단 카드 */}
       {selectedItem && (
         <>
           <TouchableOpacity style={s.backdrop} onPress={hideCard} activeOpacity={1} />
