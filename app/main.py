@@ -14,6 +14,7 @@ dev:
 from __future__ import annotations
 
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 
 from app.routers import recommend
 
@@ -21,6 +22,13 @@ app = FastAPI(
     title="청년 안심 H+T 추천 API",
     version="0.1.0-prototype",
     description="청년 거주지 추천 + Gemini 자연어 리포트",
+)
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 
 app.include_router(recommend.router, prefix="/api/v1", tags=["recommend"])
