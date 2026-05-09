@@ -22,7 +22,23 @@ ROOT = Path(__file__).resolve().parents[2]
 PROCESSED = ROOT / "data" / "processed"
 DOCS = ROOT / "docs"
 
-YOUTH_MEDIAN_INCOME_WON = 2_500_000  # KOSIS 수집 전 고정 (청년 중위소득 월 250만원)
+_YOUTH_INCOME_FALLBACK = 2_500_000  # KOSIS 미로드 시 fallback
+
+
+def _load_youth_income() -> int:
+    """KOSIS 청년 임금 parquet에서 최신 29세이하 월임금 로드. 없으면 fallback."""
+    import json as _json
+    j = PROCESSED / "kosis_youth_wage_latest.json"
+    if j.exists():
+        try:
+            data = _json.loads(j.read_text(encoding="utf-8"))
+            return int(data.get("wage_under29", _YOUTH_INCOME_FALLBACK))
+        except Exception:
+            pass
+    return _YOUTH_INCOME_FALLBACK
+
+
+YOUTH_MEDIAN_INCOME_WON: int = _load_youth_income()
 MIN_TRANSACTION_COUNT = 3  # 표본 부족 컷
 
 
@@ -58,6 +74,18 @@ def _load_hug() -> dict[str, float]:
         return {}
     df = pl.read_parquet(p).select(["sigungu_code", "acc_rate_pct"])
     return dict(zip(df["sigungu_code"].to_list(), df["acc_rate_pct"].to_list()))
+
+
+@lru_cache(maxsize=1)
+def _load_unsold_by_sido() -> dict[str, int]:
+    """unsold_by_sido.parquet → {sido_code: unsold_units} 최신 월 기준."""
+    p = PROCESSED / "unsold_by_sido.parquet"
+    if not p.exists():
+        return {}
+    df = pl.read_parquet(p)
+    latest_ym = df["year_month"].max()
+    df_latest = df.filter(pl.col("year_month") == latest_ym)
+    return dict(zip(df_latest["sido_code"].to_list(), df_latest["unsold_units"].to_list()))
 
 
 @lru_cache(maxsize=1)
@@ -147,6 +175,7 @@ def load_region_features(work_lat: float, work_lng: float) -> list[RegionFeature
 
     sg_names, sg_lats, sg_lngs = _load_sigungu_centroid()
     gru_preds = _load_gru_predictions()
+    unsold_map = _load_unsold_by_sido()  # {sido_code: unsold_units}
 
     # rent 정규화 역변환용 통계 (gru_predictions는 normalized 값)
     rent_mean_all = float(feat["rent_mean_won"].mean() or 1)
@@ -165,6 +194,8 @@ def load_region_features(work_lat: float, work_lng: float) -> list[RegionFeature
         commute = commute_map.get(sg, 9999.0)
         hug_rate = hug.get(sg, 0.0)
         burden = rent / YOUTH_MEDIAN_INCOME_WON
+        sido_code = sg[:2]
+        unsold_units = unsold_map.get(sido_code, 0)
 
         # GRU 6개월 후 예측 (있으면 사용, 없으면 현재값)
         if sg in gru_preds:
@@ -185,6 +216,7 @@ def load_region_features(work_lat: float, work_lng: float) -> list[RegionFeature
             future_burden_6m=round(future_burden, 3),
             lat=sg_lats.get(sg, 0.0),
             lng=sg_lngs.get(sg, 0.0),
+            extras={"unsold_units": unsold_units},
         ))
 
     return features if features else None

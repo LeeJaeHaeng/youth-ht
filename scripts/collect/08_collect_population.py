@@ -1,163 +1,128 @@
-"""행정안전부 주민등록인구 수집기 (GRU #5 입력 — 격자 인구 변화율).
+"""행안부 주민등록인구 수집기 (GRU #5 입력 — 시도별 연간 인구 변화율).
 
-`.env` POPULATION_API_URL 채워지면 즉시 작동. 수집 결과를 표준 컬럼으로 정규화.
+행정안전부 RegistrationPopulationByRegion API
+- URL: https://apis.data.go.kr/1741000/RegistrationPopulationByRegion/getRegistrationPopulationByRegion
+- 키: DATA_GO_KR_KEY_DECODING (URL decoded)
+- 응답: 17 시도 × ~18년 = ~306행 (wrttimeid=연도, regi=시도명)
 
-설계서 §1주차 데이터셋 7. 청년(19~34세) 인구 추출.
-
-산출: data/processed/population_history.parquet
-컬럼: region_code, year_month, total_pop, youth_pop, male_pop, female_pop
+산출: data/processed/pop_change_by_sido.parquet
+컬럼: sido_code(str 2자리), year(int), population(int), pop_change_rate(float)
 """
 from __future__ import annotations
 
 import os
-import sys
-import xml.etree.ElementTree as ET
 from pathlib import Path
 
-import httpx
 import polars as pl
+import requests
 
-sys.path.insert(0, str(Path(__file__).resolve().parent))
-from _http import PROCESSED_DIR, env, get_with_retry  # noqa: E402
+ROOT = Path(__file__).resolve().parents[2]
+PROCESSED = ROOT / "data" / "processed"
+OUT = PROCESSED / "pop_change_by_sido.parquet"
 
-OUT = PROCESSED_DIR / "population_history.parquet"
+API_URL = "https://apis.data.go.kr/1741000/RegistrationPopulationByRegion/getRegistrationPopulationByRegion"
 
-
-def parse_extra(s: str) -> dict[str, str]:
-    if not s:
-        return {}
-    out: dict[str, str] = {}
-    for chunk in s.split("&"):
-        if "=" in chunk:
-            k, v = chunk.split("=", 1)
-            out[k.strip()] = v.strip()
-    return out
+SIDO_NAME_TO_CODE: dict[str, str] = {
+    "서울": "11", "부산": "26", "대구": "27", "인천": "28",
+    "광주": "29", "대전": "30", "울산": "31", "세종": "36",
+    "경기": "41", "강원": "42", "충북": "43", "충남": "44",
+    "전북": "45", "전남": "46", "경북": "47", "경남": "48", "제주": "50",
+    "강원특별자치도": "42", "전북특별자치도": "45",
+}
 
 
-def fetch_page(client: httpx.Client, url: str, key: str, page: int, page_size: int = 1000, **extra: str) -> tuple[list[dict], str]:
-    """단일 페이지 호출. (rows, content_type) 반환."""
+def fetch_all(key: str) -> list[dict]:
+    """전체 행 수집 (pSize=1000, 단일 페이지로 충분)."""
     params = {
         "serviceKey": key,
         "type": "json",
-        "pageNo": str(page),
-        "numOfRows": str(page_size),
-        **extra,
+        "pageNo": "1",
+        "numOfRows": "1000",
     }
-    r = get_with_retry(client, url, params=params, timeout=30)
-    ct = (r.headers.get("Content-Type") or "").lower()
-    if "json" in ct or r.text.lstrip().startswith("{"):
-        data = r.json()
-        # 공공데이터포털 표준: response.body.items.item 또는 평탄한 구조
-        rows = _extract_rows_json(data)
-        return rows, "json"
-    # XML
-    root = ET.fromstring(r.text)
-    rows = [{c.tag: (c.text or "").strip() for c in item} for item in root.findall(".//item")]
-    return rows, "xml"
+    r = requests.get(API_URL, params=params, timeout=30)
+    r.raise_for_status()
+    data = r.json()
 
-
-def _extract_rows_json(data: dict | list) -> list[dict]:
-    """다양한 JSON 응답 형태에서 row 리스트 추출 — 사용자 명세 unknown 대응."""
-    if isinstance(data, list):
-        return [d for d in data if isinstance(d, dict)]
-    if not isinstance(data, dict):
-        return []
-    # 공공데이터포털 표준
-    body = data.get("response", {}).get("body") if "response" in data else None
-    if body:
-        items = body.get("items")
+    # 행안부 자체 래핑 구조: {RegistrationPopulationByRegion: [{head:...}, {row:[...]}]}
+    try:
+        if "RegistrationPopulationByRegion" in data:
+            sections = data["RegistrationPopulationByRegion"]
+            for sec in sections:
+                if "row" in sec:
+                    return sec["row"]
+        # 공공데이터포털 표준 응답 구조
+        body = data["response"]["body"]
+        items = body["items"]["item"]
         if isinstance(items, dict):
-            item = items.get("item")
-            if isinstance(item, list):
-                return item
-            if isinstance(item, dict):
-                return [item]
-        elif isinstance(items, list):
-            return items
-    # 직접 result 형태
-    for key in ("result", "rows", "data", "list"):
-        v = data.get(key)
-        if isinstance(v, list):
-            return [r for r in v if isinstance(r, dict)]
-    return []
+            items = [items]
+        return items
+    except (KeyError, TypeError) as e:
+        raise RuntimeError(f"응답 파싱 실패: {e}\n{str(data)[:300]}")
 
 
-def normalize(rows: list[dict]) -> pl.DataFrame:
-    """행안부 응답 컬럼명을 우리 표준 스키마로 매핑. 알려진 후보 모두 시도."""
-    if not rows:
-        return pl.DataFrame()
-
+def process(rows: list[dict]) -> pl.DataFrame:
+    """원본 rows → sido_code × year × pop_change_rate."""
     df = pl.DataFrame(rows)
-    cols = df.columns
+    print(f"  원본 컬럼: {df.columns}")
 
-    # 컬럼명 후보 (실제 명세 확인 후 정확화)
-    def first(*candidates: str) -> str | None:
-        for c in candidates:
-            if c in cols:
-                return c
-        return None
+    # 전국 "계" 제외, 시도만
+    df = df.filter(pl.col("regi") != "계")
 
-    code_col = first("admm_cd", "admmCd", "regionCd", "행정구역코드", "stdgCd")
-    ym_col = first("stdg_dt", "stdgDt", "기준연월", "stdgYm")
-    total_col = first("ttl_popltn_co", "ttlPopltnCo", "총인구", "popltnCnt")
-    male_col = first("male_popltn_co", "malePopltnCo", "남자인구")
-    female_col = first("female_popltn_co", "femalePopltnCo", "여자인구")
+    # sido_code 매핑
+    sido_map = SIDO_NAME_TO_CODE
+    df = df.with_columns(
+        pl.col("regi").map_elements(
+            lambda x: sido_map.get(x), return_dtype=pl.String
+        ).alias("sido_code")
+    )
+    df = df.filter(pl.col("sido_code").is_not_null())
 
-    rename_map: dict[str, str] = {}
-    if code_col:
-        rename_map[code_col] = "region_code"
-    if ym_col:
-        rename_map[ym_col] = "year_month"
-    if total_col:
-        rename_map[total_col] = "total_pop"
-    if male_col:
-        rename_map[male_col] = "male_pop"
-    if female_col:
-        rename_map[female_col] = "female_pop"
+    # year, population 변환
+    df = df.with_columns([
+        pl.col("wrttimeid").cast(pl.Int64).alias("year"),
+        pl.col("population_tot").cast(pl.Float64).fill_null(0).cast(pl.Int64).alias("population"),
+    ])
 
-    if rename_map:
-        df = df.rename(rename_map)
-    return df
+    # 2019년 이후 (변화율 계산을 위해 2018도 포함)
+    df = df.filter(pl.col("year") >= 2018).sort(["sido_code", "year"])
+
+    # YoY 변화율: (현재 - 전년) / 전년 * 100
+    df = df.with_columns(
+        pl.col("population").shift(1).over("sido_code").alias("prev_population")
+    )
+    df = df.with_columns(
+        ((pl.col("population") - pl.col("prev_population")) / pl.col("prev_population") * 100)
+        .alias("pop_change_rate")
+    )
+
+    # 2019 이후만 최종 출력 (2018은 전년도 기준용)
+    df = df.filter(pl.col("year") >= 2019)
+
+    return df.select(["sido_code", "year", "population", "pop_change_rate"]).sort(["sido_code", "year"])
 
 
 def main() -> int:
-    url = os.getenv("POPULATION_API_URL", "").strip()
-    if not url:
-        print("[FAIL] .env POPULATION_API_URL 미설정")
-        print("       사용자 액션 필요 — docs/user_action_required.md §A")
-        return 2
+    from dotenv import load_dotenv
+    load_dotenv(ROOT / ".env")
 
-    key = env("DATA_GO_KR_KEY_DECODING")
-    extra = parse_extra(os.getenv("POPULATION_EXTRA_PARAMS", ""))
-
-    print(f"[INFO] URL: {url}")
-    print(f"[INFO] extra: {extra}")
-
-    all_rows: list[dict] = []
-    page = 1
-    with httpx.Client() as client:
-        while True:
-            rows, fmt = fetch_page(client, url, key, page, **extra)
-            print(f"  page {page}: {len(rows)} rows ({fmt})")
-            if not rows:
-                break
-            all_rows.extend(rows)
-            if len(rows) < 1000:
-                break
-            page += 1
-            if page > 100:
-                print("[WARN] 100페이지 초과 — 중단")
-                break
-
-    if not all_rows:
-        print("[FAIL] 응답 없음")
+    key = os.getenv("DATA_GO_KR_KEY_DECODING", "").strip()
+    if not key:
+        print("[FAIL] .env DATA_GO_KR_KEY_DECODING 없음")
         return 1
 
-    df = normalize(all_rows)
+    print("[행안부] 주민등록인구 수집 시작")
+    rows = fetch_all(key)
+    print(f"[INFO] 원본 {len(rows)}행")
+
+    df = process(rows)
+    print(f"[INFO] 처리 완료: {len(df)}행, 시도 {df['sido_code'].n_unique()}개, "
+          f"연도 {df['year'].n_unique()}개")
+    print(f"  기간: {df['year'].min()} ~ {df['year'].max()}")
+    print(df.head(5))
+
+    PROCESSED.mkdir(parents=True, exist_ok=True)
     df.write_parquet(OUT, compression="zstd")
-    print(f"[DONE] {len(df):,} 행 → {OUT}")
-    print(f"컬럼: {df.columns}")
-    print(df.head(3))
+    print(f"[DONE] → {OUT}")
     return 0
 
 

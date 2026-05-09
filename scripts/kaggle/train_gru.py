@@ -63,9 +63,9 @@ FEATURE_COLS = [
     "transaction_count_norm",
     "base_rate_pct",
     "hug_acc_rate_pct",
-    "youth_wage_norm",     # KOSIS 수집 전: 시도별 고정값 사용
-    "pop_change_rate",     # 행안부 수집 전: 0 채움
-    "unsold_units_norm",   # R-ONE 수집 전: 0 채움
+    "youth_wage_norm",
+    "pop_change_rate",
+    "unsold_units_norm",
 ]
 N_FEAT = len(FEATURE_COLS)
 
@@ -198,8 +198,56 @@ def load_ecos() -> dict[str, float]:
     return {}
 
 
+def load_kosis_wage() -> dict[int, float]:
+    """kosis_youth_wage.parquet → {year: wage_under29_won}. 없으면 빈 dict."""
+    p = find_parquet("kosis_youth_wage.parquet")
+    if not p:
+        print("[WARN] kosis_youth_wage.parquet 없음 — SIDO_YOUTH_WAGE 하드코딩 유지")
+        return {}
+    df = pl.read_parquet(p)
+    result = {int(r["year"]): float(r["wage_under29"]) for r in df.to_dicts()}
+    print(f"[INFO] KOSIS 청년임금 로드: {len(result)}년치")
+    return result
+
+
+def load_unsold() -> dict[tuple[str, str], int]:
+    """R-ONE unsold_by_sido.parquet → {(sido_code, YYYYMM): unsold_units}."""
+    p = find_parquet("unsold_by_sido.parquet")
+    if not p:
+        print("[WARN] unsold_by_sido.parquet 없음 — 0 채움")
+        return {}
+    df = pl.read_parquet(p)
+    result: dict[tuple[str, str], int] = {}
+    for row in df.to_dicts():
+        result[(str(row["sido_code"]), str(row["year_month"]))] = int(row["unsold_units"])
+    print(f"[INFO] R-ONE 미분양 로드: {len(result):,}건")
+    return result
+
+
+def load_population() -> dict[tuple[str, int], float]:
+    """행안부 pop_change_by_sido.parquet → {(sido_code, year): pop_change_rate}."""
+    p = find_parquet("pop_change_by_sido.parquet")
+    if not p:
+        print("[WARN] pop_change_by_sido.parquet 없음 — 0.0 채움")
+        return {}
+    df = pl.read_parquet(p)
+    result: dict[tuple[str, int], float] = {}
+    for row in df.to_dicts():
+        rate = row["pop_change_rate"]
+        if rate is not None:
+            result[(str(row["sido_code"]), int(row["year"]))] = float(rate)
+    print(f"[INFO] 행안부 인구변화율 로드: {len(result)}건")
+    return result
+
+
 # ── 피처 빌드 ─────────────────────────────────────────────────────────────────
-def build_features(agg: pl.DataFrame, ecos: dict[str, float]) -> pl.DataFrame:
+def build_features(
+    agg: pl.DataFrame,
+    ecos: dict[str, float],
+    unsold: dict[tuple[str, str], int],
+    kosis_wage: dict[int, float],
+    pop: dict[tuple[str, int], float] | None = None,
+) -> pl.DataFrame:
     """시군구 × 월 피처 DataFrame 생성."""
     df = agg.with_columns([
         pl.col("year_month").dt.strftime("%Y%m").alias("ym_str"),
@@ -215,14 +263,29 @@ def build_features(agg: pl.DataFrame, ecos: dict[str, float]) -> pl.DataFrame:
     dep_std = float(df["deposit_mean_won"].std() or 1)
     cnt_mean = float(df["transaction_count"].mean() or 1)
     cnt_std = float(df["transaction_count"].std() or 1)
+    # KOSIS 실데이터 있으면 사용, 없으면 SIDO_YOUTH_WAGE 하드코딩 fallback
+    kosis_years = sorted(kosis_wage.keys())
     wage_mean = sum(SIDO_YOUTH_WAGE.values()) / len(SIDO_YOUTH_WAGE)
+
+    # R-ONE 미분양 정규화 통계
+    unsold_vals = list(unsold.values())
+    unsold_mean = float(sum(unsold_vals) / len(unsold_vals)) if unsold_vals else 1000.0
+    unsold_std = float((sum((v - unsold_mean) ** 2 for v in unsold_vals) / max(len(unsold_vals), 1)) ** 0.5) if unsold_vals else 500.0
 
     for row in rows:
         sg = row["sigungu_code"]
+        sido = row["sido_code"]
         ym = row["ym_str"]
         rate = ecos.get(ym, 3.5)
         hug = HUG_RATES.get(sg, 1.0)
-        wage = SIDO_YOUTH_WAGE.get(row["sido_code"], wage_mean)
+        row_year = row["year_month"].year if hasattr(row["year_month"], "year") else int(ym[:4])
+        if kosis_years:
+            # 해당 연도 KOSIS 값 (없으면 가장 가까운 연도)
+            best_yr = min(kosis_years, key=lambda y: abs(y - row_year))
+            wage = kosis_wage[best_yr]
+        else:
+            wage = SIDO_YOUTH_WAGE.get(sido, wage_mean) * 10_000  # 만원 → 원
+        raw_unsold = float(unsold.get((sido, ym), unsold_mean))
 
         out.append({
             "sigungu_code": sg,
@@ -233,9 +296,9 @@ def build_features(agg: pl.DataFrame, ecos: dict[str, float]) -> pl.DataFrame:
             "transaction_count_norm": (row["transaction_count"] - cnt_mean) / max(cnt_std, 1),
             "base_rate_pct": rate,
             "hug_acc_rate_pct": hug,
-            "youth_wage_norm": (wage - wage_mean) / 30.0,
-            "pop_change_rate": 0.0,
-            "unsold_units_norm": 0.0,
+            "youth_wage_norm": (wage - 2_500_000) / 500_000,  # 250만원 기준 정규화
+            "pop_change_rate": (pop or {}).get((sido, row_year), 0.0),  # 행안부 실데이터
+            "unsold_units_norm": (raw_unsold - unsold_mean) / max(unsold_std, 1),  # R-ONE 실데이터
         })
 
     return pl.DataFrame(out).sort(["sigungu_code", "year_month"])
@@ -422,9 +485,12 @@ def main() -> None:
     print("\n1. 데이터 로딩")
     agg = load_rent()
     ecos = load_ecos()
+    unsold = load_unsold()
+    kosis_wage = load_kosis_wage()
+    pop = load_population()
 
     print("\n2. 피처 빌드")
-    feat_df = build_features(agg, ecos)
+    feat_df = build_features(agg, ecos, unsold, kosis_wage, pop)
     print(f"  시군구 {feat_df['sigungu_code'].n_unique()}개 × 월 {feat_df['year_month'].n_unique()}개")
 
     print("\n3. GRU 학습")
