@@ -54,9 +54,6 @@ function buildMapHtml(
 </head>
 <body>
 <div id="map"></div>
-<script type="text/javascript"
-  src="//dapi.kakao.com/v2/maps/sdk.js?appkey=${jsKey}&autoload=false">
-</script>
 <script>
 function postMsg(data) {
   if (window.ReactNativeWebView) {
@@ -65,7 +62,8 @@ function postMsg(data) {
     window.parent.postMessage(data, '*');
   }
 }
-kakao.maps.load(function() {
+function initMap() {
+  kakao.maps.load(function() {
   var map = new kakao.maps.Map(document.getElementById('map'), {
     center: new kakao.maps.LatLng(${workLat}, ${workLng}),
     level: 8
@@ -99,7 +97,11 @@ kakao.maps.load(function() {
       yAnchor: 1.0
     });
   });
-});
+}
+</script>
+<script type="text/javascript"
+  src="https://dapi.kakao.com/v2/maps/sdk.js?appkey=${jsKey}&autoload=false"
+  onload="initMap()">
 </script>
 </body>
 </html>`;
