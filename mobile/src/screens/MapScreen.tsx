@@ -150,7 +150,6 @@ export default function MapScreen({ items, request, onCardPress }: Props) {
     ? React.createElement('iframe', {
         srcDoc: html,
         style: { flex: 1, border: 'none', width: '100%', height: '100%' } as React.CSSProperties,
-        sandbox: 'allow-scripts allow-same-origin',
       })
     : React.createElement(WebView, {
         source: { html, baseUrl: 'https://youth-ht.app' },
