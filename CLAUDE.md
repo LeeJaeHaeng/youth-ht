@@ -35,6 +35,34 @@ youth-ht/
 
 ## 진행 로그
 
+### 2026-05-09 — 행안부·KOSIS·R-ONE 실데이터 GRU 피처 연동 완료
+
+#### 데이터 융합 가점(5점) 대응 — 3개 피처 실데이터 교체 ✅
+
+| 피처 | 이전 | 이후 |
+| --- | --- | --- |
+| `pop_change_rate` | 0.0 하드코딩 | 행안부 주민등록인구 API (17 시도 × 2019~2024, 87행) |
+| `unsold_units_norm` | 0.0 하드코딩 | R-ONE 미분양 API (17 시도 × 75개월, 1,275행) |
+| `youth_wage_norm` | 시도별 상수 dict | KOSIS 청년임금 API (29세이하 2,601,000원/월, 2024) |
+
+#### 수정 파일 요약
+
+- `scripts/collect/08_collect_population.py`: 행안부 RegistrationPopulationByRegion API, YoY 인구변화율 산출
+- `scripts/collect/09_collect_unsold.py`: R-ONE SttsApiTblData paginated 수집 (55,249행 → 1,275행 필터)
+- `scripts/collect/10_collect_kosis_wage.py`: KOSIS DT_118N_LCE0004, C1_NM=전체근로자 필터 (신규)
+- `app/services/data_loader.py`: YOUTH_MEDIAN_INCOME_WON 동적 로드, `_load_unsold_by_sido()` 추가
+- `scripts/kaggle/train_gru.py`: `load_population()` 추가, 3개 피처 실데이터 반영
+- `scripts/kaggle/KAGGLE_GUIDE.md`: Step 2.5 보조 데이터 Dataset 업로드 절차 추가
+
+#### 다음 단계
+
+- Kaggle Dataset `youth-ht-processed` 업로드 (3개 parquet)
+- GRU 재학습 (Kaggle Step 3 실행)
+- EC2 배포 (현재 연결 불가 — 재시도 필요)
+- 다운로드된 `gru_predictions.parquet` → `data/processed/` 배치 후 FastAPI E2E 재검증
+
+---
+
 ### 2026-05-08 (3차) — GitHub 초기 푸시 + Supabase llm_cache 연동
 
 #### GitHub 초기 커밋·푸시 ✅
