@@ -55,11 +55,25 @@ Step 3: train_gru.py     →  gru_rent_model.pt + gru_predictions.parquet
 
 ---
 
+## Step 2.5: 보조 데이터 Dataset 업로드 (최초 1회)
+
+아래 3개 parquet 파일을 Kaggle Dataset으로 업로드:
+
+- `data/processed/pop_change_by_sido.parquet` (행안부 인구변화율)
+- `data/processed/unsold_by_sido.parquet` (R-ONE 미분양)
+- `data/processed/kosis_youth_wage.parquet` (KOSIS 청년임금)
+
+1. kaggle.com → Datasets → New Dataset
+2. Dataset 이름: `youth-ht-processed`
+3. 위 3개 파일 업로드 → Create
+
+---
+
 ## Step 3: GRU 학습 (train_gru.py)
 
 ### 설정
 1. New Notebook → Script
-2. **Add Data**: `youth-ht-rent-data` + (선택) `youth-ht-lgbm`
+2. **Add Data**: `youth-ht-rent-data` + `youth-ht-lgbm` + `youth-ht-processed`
 3. **Accelerator**: GPU T4 x2 권장
 4. `train_gru.py` 붙여넣기 후 실행
 
