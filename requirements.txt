@@ -24,3 +24,10 @@ supabase>=2.5.0
 lightgbm>=4.3.0
 xgboost>=2.0.0
 scikit-learn>=1.5.0
+
+# FastAPI 백엔드
+fastapi>=0.111.0
+uvicorn>=0.30.0
+
+# LLM
+google-genai>=1.0.0

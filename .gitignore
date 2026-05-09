@@ -22,8 +22,8 @@ data/verify/
 *.swp
 .DS_Store
 
-# 모델·로그
-models/
+# 모델·로그 (최상위 디렉토리만 무시)
+/models/
 logs/
 *.pkl
 *.pt
