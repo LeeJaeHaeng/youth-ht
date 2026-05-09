@@ -49,7 +49,8 @@ function buildMapHtml(
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1"/>
 <style>
   * { margin:0; padding:0; box-sizing:border-box; }
-  html, body, #map { width:100%; height:100%; }
+  html, body { width:100%; height:100%; }
+  #map { width:100%; height:100vh; }
 </style>
 </head>
 <body>
@@ -152,7 +153,10 @@ export default function MapScreen({ items, request, onCardPress }: Props) {
   const mapView = Platform.OS === 'web'
     ? React.createElement('iframe', {
         srcDoc: html,
-        style: { flex: 1, border: 'none', width: '100%', height: '100%' } as React.CSSProperties,
+        style: {
+          position: 'absolute', top: 0, left: 0, right: 0, bottom: 0,
+          width: '100%', height: '100%', border: 'none',
+        } as React.CSSProperties,
       })
     : React.createElement(WebView, {
         source: { html, baseUrl: 'https://youth-ht.app' },
@@ -220,7 +224,7 @@ function MetricChip({ label, value }: { label: string; value: string }) {
 }
 
 const s = StyleSheet.create({
-  container: { flex: 1 },
+  container: { flex: 1, position: 'relative' },
   map: { flex: 1 },
 
   backdrop: { ...StyleSheet.absoluteFillObject, backgroundColor: 'transparent' },
