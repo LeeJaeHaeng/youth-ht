@@ -97,6 +97,7 @@ function initMap() {
       yAnchor: 1.0
     });
   });
+  });
 }
 </script>
 <script type="text/javascript"
