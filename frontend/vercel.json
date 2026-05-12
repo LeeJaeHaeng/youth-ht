@@ -1,0 +1,14 @@
+{
+  "buildCommand": "npm run build:vercel",
+  "outputDirectory": "dist-vercel",
+  "rewrites": [
+    {
+      "source": "/api/:path*",
+      "destination": "http://3.26.146.162/api/:path*"
+    },
+    {
+      "source": "/(.*)",
+      "destination": "/index.html"
+    }
+  ]
+}

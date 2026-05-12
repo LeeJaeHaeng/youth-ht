@@ -9,7 +9,7 @@
 |------|------|------|
 | **FastAPI 백엔드** | ✅ EC2 운영중 | `http://3.26.146.162:8000` |
 | **React Native 앱** | ✅ 빌드 완료 | 로컬 Expo / EC2 연동 가능 |
-| **웹 프론트엔드** | ✅ Vercel 배포 | `https://youth-ht-web.vercel.app` |
+| **웹 프론트엔드** | ✅ Vercel 배포 | `frontend/`, `https://youth-ht-web.vercel.app` |
 | **Supabase DB** | ✅ 연결됨 | llm_cache 연동 |
 | **Kaggle ML** | ✅ 학습 완료 | LightGBM+XGBoost+GRU |
 
@@ -100,7 +100,7 @@ npx expo export --platform web
 ## 웹 프론트엔드 (Vercel)
 
 ```powershell
-cd ..\creative-heartbeat-ui
+cd frontend
 npm install
 npm run dev
 ```
@@ -115,7 +115,7 @@ npm run build:vercel
 
 ### Vercel GitHub 체크
 
-`youth-ht` 루트는 Vite 앱이 아니라 FastAPI/데이터 파이프라인 저장소다. GitHub 연동 Vercel 체크가 루트에서 `vite build`를 실행하거나 Python 백엔드를 빌드하지 않도록 `vercel.json`과 `.vercelignore`는 정적 안내 페이지(`public/index.html`)만 배포하도록 고정한다. 실제 사용자 웹 서비스는 `https://youth-ht-web.vercel.app`에서 운영한다.
+이 저장소는 백엔드와 프론트엔드를 함께 관리하는 monorepo다. Vercel `youth-ht-web` 프로젝트는 Root Directory를 `frontend`로 설정하고, `frontend/vercel.json`의 `/api/*` rewrite로 EC2 FastAPI에 연결한다. 실제 사용자 웹 서비스는 `https://youth-ht-web.vercel.app`에서 운영한다.
 
 ## 디렉토리 구조
 
@@ -133,6 +133,10 @@ youth-ht/
 │       └── llm.py            # Gemini + Supabase 캐시
 ├── mobile/
 │   └── src/screens/          # Home/Results/Map/Detail/Compare
+├── frontend/                 # Vercel 웹 SPA
+│   ├── src/routes/recommend.tsx
+│   ├── src/components/map-view.tsx
+│   └── src/lib/api.ts
 ├── scripts/
 │   ├── kaggle/               # collect_rent, train_lgbm, train_gru
 │   ├── collect/              # 데이터 수집기
