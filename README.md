@@ -113,6 +113,10 @@ npm run build:vercel
 
 웹 프론트엔드는 Kakao 장소 검색으로 직장 위치 좌표를 정하고, Vercel의 `/api/*` rewrite를 통해 EC2 FastAPI에 연결한다.
 
+### Vercel GitHub 체크
+
+`youth-ht` 루트는 Vite 앱이 아니라 FastAPI/데이터 파이프라인 저장소다. GitHub 연동 Vercel 체크가 루트에서 `vite build`를 실행하거나 Python 백엔드를 빌드하지 않도록 `vercel.json`과 `.vercelignore`는 정적 안내 페이지(`public/index.html`)만 배포하도록 고정한다. 실제 사용자 웹 서비스는 `https://youth-ht-web.vercel.app`에서 운영한다.
+
 ## 디렉토리 구조
 
 ```text
