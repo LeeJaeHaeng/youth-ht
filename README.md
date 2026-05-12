@@ -9,7 +9,7 @@
 | 구성 | 상태 | 위치/주소 |
 | --- | --- | --- |
 | 웹 프론트엔드 | 운영 배포 | `frontend/`, <https://youth-ht-web.vercel.app> |
-| FastAPI 백엔드 | EC2 운영 | `app/`, `http://3.26.146.162:8000` |
+| FastAPI 백엔드 | EC2 운영 | `app/`, `[http://3.26.146.162:8000](http://3.26.146.162:8000/api/v1/healthz)` |
 | 모바일 앱 | Expo 앱 구현 | `mobile/` |
 | ML 모델 | 학습 완료 | LightGBM + XGBoost 앙상블, GRU 6개월 예측 |
 | DB/캐시 | 연결 완료 | Supabase `llm_cache`, 로컬 `data/llm_cache.db` |
