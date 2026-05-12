@@ -9,6 +9,7 @@
 |------|------|------|
 | **FastAPI 백엔드** | ✅ EC2 운영중 | `http://3.26.146.162:8000` |
 | **React Native 앱** | ✅ 빌드 완료 | 로컬 Expo / EC2 연동 가능 |
+| **웹 프론트엔드** | ✅ Vercel 배포 | `https://youth-ht-web.vercel.app` |
 | **Supabase DB** | ✅ 연결됨 | llm_cache 연동 |
 | **Kaggle ML** | ✅ 학습 완료 | LightGBM+XGBoost+GRU |
 
@@ -42,6 +43,7 @@ curl -X POST http://3.26.146.162:8000/api/v1/recommend \
 |--------|------|
 | 백엔드 | FastAPI + uvicorn (AWS EC2 t3.micro) |
 | 모바일 | React Native (Expo) |
+| 웹 | Vite + React + TanStack Router 정적 SPA |
 | DB | Supabase (PostgreSQL, ap-south-1) |
 | 지도 | 카카오맵 JS API (WebView) |
 | ML 모델 | LightGBM + XGBoost (앙상블) + GRU (시계열) |
@@ -95,6 +97,22 @@ echo "EXPO_PUBLIC_API_URL=http://3.26.146.162:8000/api/v1" > .env
 npx expo export --platform web
 ```
 
+## 웹 프론트엔드 (Vercel)
+
+```powershell
+cd ..\creative-heartbeat-ui
+npm install
+npm run dev
+```
+
+배포 빌드:
+
+```powershell
+npm run build:vercel
+```
+
+웹 프론트엔드는 Kakao 장소 검색으로 직장 위치 좌표를 정하고, Vercel의 `/api/*` rewrite를 통해 EC2 FastAPI에 연결한다.
+
 ## 디렉토리 구조
 
 ```text
@@ -128,6 +146,7 @@ youth-ht/
 - ✅ ML 학습 — LightGBM+XGBoost 앙상블, GRU 6개월 예측
 - ✅ FastAPI 백엔드 — 추천/리포트/비교 엔드포인트
 - ✅ React Native 앱 — 홈/결과/지도/상세/비교 5개 화면
+- ✅ 웹 SPA — Kakao 장소 검색/지도 + EC2 추천 API 연동
 - ✅ 카카오맵 지도 — 순위별 마커 + 하단 카드
 - ✅ Supabase 연동 — llm_cache 테이블
 - ✅ AWS EC2 배포 — `3.26.146.162:8000` 운영중
